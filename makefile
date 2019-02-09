@@ -3,7 +3,7 @@ CPPFLAGS += -W -Wall
 CPPFLAGS += -std=c++11
 CPPFLAGS += -O3
 
-# LDLIBS += -lOpenCL
+LDLIBS += -lOpenCL
 
 all : bin/make_world bin/render_world bin/step_world
 

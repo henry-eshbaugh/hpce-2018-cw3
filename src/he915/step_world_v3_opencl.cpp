@@ -7,61 +7,111 @@
 #include <cstdio>
 #include <string>
 
+#define CL_USE_DEPRECATED_OPENCL_1_2_APIS
+#define __CL_ENABLE_EXCEPTIONS 
+#include "CL/cl.hpp"
+
+#include <fstream>
+#include <streambuf>
+
+
 namespace hpce{
 namespace he915{
 
-
-void kernel_xy(unsigned x, unsigned y, unsigned w, float outer, float inner, const float *world_state, float *buffer, const cell_flags_t *world_properties)
+std::string LoadSource(const char *fileName)
 {
-	unsigned index=y*w + x;
-	
-	if ((world_properties[index] & Cell_Fixed) || (world_properties[index] & Cell_Insulator)){
-		// Do nothing, this cell never changes (e.g. a boundary, or an interior fixed-value heat-source)
-		buffer[index]=world_state[index];
-	} else {
-		float contrib=inner;
-		float acc=inner*world_state[index];
-		
-		// Cell above
-		if(! (world_properties[index-w] & Cell_Insulator)) {
-			contrib += outer;
-			acc += outer * world_state[index-w];
-		}
-		
-		// Cell below
-		if(! (world_properties[index+w] & Cell_Insulator)) {
-			contrib += outer;
-			acc += outer * world_state[index+w];
-		}
-		
-		// Cell left
-		if(! (world_properties[index-1] & Cell_Insulator)) {
-			contrib += outer;
-			acc += outer * world_state[index-1];
-		}
-		
-		// Cell right
-		if(! (world_properties[index+1] & Cell_Insulator)) {
-			contrib += outer;
-			acc += outer * world_state[index+1];
-		}
-		
-		// Scale the accumulate value by the number of places contributing to it
-		float res=acc/contrib;
-		// Then clamp to the range [0,1]
-		res=std::min(1.0f, std::max(0.0f, res));
-		buffer[index] = res;
-
+	std::string baseDir="src/he915";
+	if(getenv("HPCE_CL_SRC_DIR")){
+		baseDir=getenv("HPCE_CL_SRC_DIR");
 	}
+	
+	std::string fullName=baseDir+"/"+fileName;
+	
+	// Open a read-only binary stream over the file
+	std::ifstream src(fullName, std::ios::in | std::ios::binary);
+	if(!src.is_open())
+		throw std::runtime_error("LoadSource : Couldn't load cl file from '"+fullName+"'.");
+	
+	// Read all characters of the file into a string
+	return std::string(
+		(std::istreambuf_iterator<char>(src)), // Node the extra brackets.
+        std::istreambuf_iterator<char>()
+	);
 }
+
 
 //! Reference world stepping program
 /*! \param dt Amount to step the world by.  Note that large steps will be unstable.
 	\param n Number of times to step the world
 	\note Overall time increment will be n*dt
 */
-void StepWorldV2Lambda(world_t &world, float dt, unsigned n)
+void StepWorldV3Lambda(world_t &world, float dt, unsigned n)
 {
+	std::vector<cl::Platform> platforms;
+	
+	cl::Platform::get(&platforms);
+	if(platforms.size()==0)
+		throw std::runtime_error("No OpenCL platforms found.");
+
+	std::cerr<<"Found "<<platforms.size()<<" platforms\n";
+	for(unsigned i=0;i<platforms.size();i++){
+		std::string vendor=platforms[i].getInfo<CL_PLATFORM_VENDOR>();
+		std::cerr<<"  Platform "<<i<<" : "<<vendor<<"\n";
+	}
+
+	int selectedPlatform=0;
+	if(getenv("HPCE_SELECT_PLATFORM")){
+		selectedPlatform=atoi(getenv("HPCE_SELECT_PLATFORM"));
+	}
+	std::cerr<<"Choosing platform "<<selectedPlatform<<"\n";
+	cl::Platform platform=platforms.at(selectedPlatform);   
+
+	std::vector<cl::Device> devices;
+	platform.getDevices(CL_DEVICE_TYPE_ALL, &devices);	
+	if(devices.size()==0){
+		throw std::runtime_error("No opencl devices found.\n");
+	}
+		
+	std::cerr<<"Found "<<devices.size()<<" devices\n";
+	for(unsigned i=0;i<devices.size();i++){
+		std::string name=devices[i].getInfo<CL_DEVICE_NAME>();
+		std::cerr<<"  Device "<<i<<" : "<<name<<"\n";
+	}
+
+	int selectedDevice=0;
+	if(getenv("HPCE_SELECT_DEVICE")){
+		selectedDevice=atoi(getenv("HPCE_SELECT_DEVICE"));
+	}
+	std::cerr<<"Choosing device "<<selectedDevice<<"\n";
+	cl::Device device=devices.at(selectedDevice);
+
+	cl::Context context(devices);
+	cl::CommandQueue queue(context, device);
+
+	std::string kernelSource=LoadSource("step_world_v3_kernel.cl");
+
+	cl::Program::Sources sources;	// A vector of (data,length) pairs
+	sources.push_back(std::make_pair(kernelSource.c_str(), kernelSource.size()+1));	// push on our single string
+
+	cl::Program program(context, sources);
+	try{
+		program.build(devices);
+	}catch(...){
+		for(unsigned i=0;i<devices.size();i++){
+			std::cerr<<"Log for device "<<devices[i].getInfo<CL_DEVICE_NAME>()<<":\n\n";
+			std::cerr<<program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(devices[i])<<"\n\n";
+		}
+		throw;
+	}	
+
+	size_t cbBuffer=4*world.w*world.h;
+	cl::Buffer buffProperties(context, CL_MEM_READ_ONLY, cbBuffer);
+	cl::Buffer buffState(context, CL_MEM_READ_ONLY, cbBuffer);
+	cl::Buffer buffBuffer(context, CL_MEM_WRITE_ONLY, cbBuffer);
+
+	cl::Kernel kernel(program, "kernel_xy");
+
+	// end of OpenCL
 	unsigned w=world.w, h=world.h;
 	
 	float outer=world.alpha*dt;		// We spread alpha to other cells per time
@@ -70,17 +120,37 @@ void StepWorldV2Lambda(world_t &world, float dt, unsigned n)
 	// This is our temporary working space
 	std::vector<float> buffer(w*h);
 
+	kernel.setArg(0, inner);
+	kernel.setArg(1, outer);
+	kernel.setArg(2, buffProperties);
+	kernel.setArg(3, buffState);
+	kernel.setArg(4, buffBuffer);
+
+	queue.enqueueWriteBuffer(buffProperties, CL_TRUE, 0, cbBuffer, &world.properties[0]);
 	
-	for(unsigned t=0;t<n;t++)
-		for(unsigned y=0;y<h;y++)
-			for(unsigned x=0;x<w;x++)
-					kernel_xy(x, y, w, outer, inner, &world.state[0], &buffer[0], &world.properties[0]);
+	for(unsigned t=0;t<n;t++) {
+		cl::Event evCopiedState;
+		queue.enqueueWriteBuffer(buffState, CL_FALSE, 0, cbBuffer, &world.state[0], NULL, &evCopiedState);
+
+
+		cl::NDRange offset(0, 0);				// Always start iterations at x=0, y=0
+		cl::NDRange globalSize(w, h);	// Global size must match the original loops
+		cl::NDRange localSize=cl::NullRange;	// We don't care about local size
 		
+		std::vector<cl::Event> kernelDependencies(1, evCopiedState);
+		cl::Event evExecutedKernel;
+		queue.enqueueNDRangeKernel(kernel, offset, globalSize, localSize, &kernelDependencies, &evExecutedKernel);
+		
+		std::vector<cl::Event> copyBackDependencies(1, evExecutedKernel);
+		queue.enqueueReadBuffer(buffBuffer, CL_TRUE, 0, cbBuffer, &buffer[0], &copyBackDependencies);
+
 		// All cells have now been calculated and placed in buffer, so we replace
 		// the old state with the new state
-		std::swap(world.state, buffer);
 		// Swapping rather than assigning is cheaper: just a pointer swap
 		// rather than a memcpy, so O(1) rather than O(w*h)
+		std::swap(world.state, buffer);
+	}
+		
 	
 		world.t += dt; // We have moved the world forwards in time
 }
@@ -112,7 +182,7 @@ int main(int argc, char *argv[])
 		std::cerr<<"Loaded world with w="<<world.w<<", h="<<world.h<<std::endl;
 		
 		std::cerr<<"Stepping by dt="<<dt<<" for n="<<n<<std::endl;
-		hpce::he915::StepWorldV2Lambda(world, dt, n);
+		hpce::he915::StepWorldV3Lambda(world, dt, n);
 		
 		hpce::SaveWorld(std::cout, world, binary);
 	}catch(const std::exception &e){
