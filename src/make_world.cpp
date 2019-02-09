@@ -12,7 +12,7 @@ int main(int argc, char *argv[])
 		n=atoi(argv[1]);
 	}
 	if(argc>2){
-		alpha=(float)strtod(argv[2],NULL);
+		alpha=(float)strtod(argv[2],null);
 	}
 	if(argc>3){
 		if(atoi(argv[3]))
@@ -20,11 +20,11 @@ int main(int argc, char *argv[])
 	}
 	
 	try{
-		hpce::world_t world=hpce::MakeTestWorld(n, alpha);
+		hpce::world_t world=hpce::maketestworld(n, alpha);
 		
-		hpce::SaveWorld(std::cout, world, binary);
+		hpce::saveworld(std::cout, world, binary);
 	}catch(const std::exception &e){
-		std::cerr<<"Exception : "<<e.what()<<std::endl;
+		std::cerr<<"exception : "<<e.what()<<std::endl;
 		return 1;
 	}
 		
