@@ -1,9 +1,13 @@
 enum cell_flags_t{
-	Cell_Fixed	=0x1,
-	Cell_Insulator	=0x2
+	Curr_Cell_Fixed		= 0x1,
+	Curr_Cell_Insulator	= 0x2,
+	North_Cell_Insul	= 0x4,
+	South_Cell_Insul	= 0x8,
+	East_Cell_Insul		= 0x10,
+	West_Cell_Insul		= 0x20
 };
 
-__kernel void kernel_xy(float outer, float inner, __global const float *world_state, __global float *buffer, const cell_flags_t *world_properties)
+__kernel void kernel_xy(float outer, float inner, __global const float *world_state, __global float *buffer, __private cell_flags_t properties)
 {
 
 	uint x=get_global_id(0);
@@ -11,8 +15,8 @@ __kernel void kernel_xy(float outer, float inner, __global const float *world_st
 	uint w=get_global_size(0);
 
 	uint index=y*w + x;
-	
-	if ((world_properties[index] & Cell_Fixed) || (world_properties[index] & Cell_Insulator)){
+
+	if ((properties & Curr_Cell_Fixed) || (properties & Curr_Cell_Insulator)){
 		// Do nothing, this cell never changes (e.g. a boundary, or an interior fixed-value heat-source)
 		buffer[index]=world_state[index];
 	} else {
@@ -20,25 +24,25 @@ __kernel void kernel_xy(float outer, float inner, __global const float *world_st
 		float acc=inner*world_state[index];
 		
 		// Cell above
-		if(! (world_properties[index-w] & Cell_Insulator)) {
+		if(! (properties & North_Cell_Insul)) {
 			contrib += outer;
 			acc += outer * world_state[index-w];
 		}
 		
 		// Cell below
-		if(! (world_properties[index+w] & Cell_Insulator)) {
+		if(! (properties & South_Cell_Insul)) {
 			contrib += outer;
 			acc += outer * world_state[index+w];
 		}
 		
 		// Cell left
-		if(! (world_properties[index-1] & Cell_Insulator)) {
+		if(! (properties & West_Cell_Insul)) {
 			contrib += outer;
 			acc += outer * world_state[index-1];
 		}
 		
 		// Cell right
-		if(! (world_properties[index+1] & Cell_Insulator)) {
+		if(! (properties & East_Cell_Insul)) {
 			contrib += outer;
 			acc += outer * world_state[index+1];
 		}

@@ -1,0 +1,4 @@
+V5 - added enum defining cell state
+must now determine cell type and pass into kernel explicitly.
+Take enum declaration from v5 opencl kernel code.
+Make a v5 file and fix it up. Then done.
