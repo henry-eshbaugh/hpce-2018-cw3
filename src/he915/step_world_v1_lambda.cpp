@@ -68,7 +68,7 @@ void StepWorldV1Lambda(world_t &world, float dt, unsigned n)
 		}
 	};
 	
-	for(unsigned t=0;t<n;t++)
+	for(unsigned t=0;t<n;t++) {
 		for(unsigned y=0;y<h;y++)
 			for(unsigned x=0;x<w;x++)
 					kernel_xy(x, y);
@@ -80,6 +80,7 @@ void StepWorldV1Lambda(world_t &world, float dt, unsigned n)
 		// rather than a memcpy, so O(1) rather than O(w*h)
 	
 		world.t += dt; // We have moved the world forwards in time
+	}
 }
 
 	
