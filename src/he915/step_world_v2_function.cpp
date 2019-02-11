@@ -60,7 +60,7 @@ void kernel_xy(unsigned x, unsigned y, unsigned w, float outer, float inner, con
 	\param n Number of times to step the world
 	\note Overall time increment will be n*dt
 */
-void StepWorldV2Lambda(world_t &world, float dt, unsigned n)
+void StepWorldV2Function(world_t &world, float dt, unsigned n)
 {
 	unsigned w=world.w, h=world.h;
 	
@@ -113,7 +113,7 @@ int main(int argc, char *argv[])
 		std::cerr<<"Loaded world with w="<<world.w<<", h="<<world.h<<std::endl;
 		
 		std::cerr<<"Stepping by dt="<<dt<<" for n="<<n<<std::endl;
-		hpce::he915::StepWorldV2Lambda(world, dt, n);
+		hpce::he915::StepWorldV2Function(world, dt, n);
 		
 		hpce::SaveWorld(std::cout, world, binary);
 	}catch(const std::exception &e){

@@ -19,15 +19,6 @@
 namespace hpce{
 namespace he915{
 
-enum flags_t{
-        Curr_Cell_Fixed         = 0x1,
-        Curr_Cell_Insulator     = 0x2,
-        North_Cell_Insul        = 0x4,
-        South_Cell_Insul        = 0x8,
-        East_Cell_Insul         = 0x10,
-        West_Cell_Insul         = 0x20
-};
-
 
 std::string LoadSource(const char *fileName)
 {
@@ -96,10 +87,12 @@ void StepWorldV5PackedProperties(world_t &world, float dt, unsigned n)
 	std::cerr<<"Choosing device "<<selectedDevice<<"\n";
 	cl::Device device=devices.at(selectedDevice);
 
+
 	cl::Context context(devices);
 	cl::CommandQueue queue(context, device);
 
-	std::string kernelSource=LoadSource("step_world_v3_kernel.cl");
+
+	std::string kernelSource=LoadSource("step_world_v5_packed_properties.cl");
 
 	cl::Program::Sources sources;	// A vector of (data,length) pairs
 	sources.push_back(std::make_pair(kernelSource.c_str(), kernelSource.size()+1));	// push on our single string
@@ -116,7 +109,8 @@ void StepWorldV5PackedProperties(world_t &world, float dt, unsigned n)
 	}	
 
 	size_t cbBuffer=4*world.w*world.h;
-	cl::Buffer buffProperties(context, CL_MEM_READ_ONLY, cbBuffer);
+	// properties are just uchars
+	cl::Buffer buffProperties(context, CL_MEM_READ_ONLY, world.w*world.h);
 	cl::Buffer buffState(context, CL_MEM_READ_WRITE, cbBuffer);
 	cl::Buffer buffBuffer(context, CL_MEM_READ_WRITE, cbBuffer);
 
@@ -130,55 +124,68 @@ void StepWorldV5PackedProperties(world_t &world, float dt, unsigned n)
 	
 	// This is our temporary working space
 	std::vector<float> buffer(w*h);
-
+	
 	kernel.setArg(0, inner);
 	kernel.setArg(1, outer);
 	kernel.setArg(2, buffState);
 	kernel.setArg(3, buffBuffer);
+	kernel.setArg(4, buffProperties);
 
 	cl::Event evCopiedState;
+	std::vector<uint8_t> props(w*h, 0);
+
+
+	for (unsigned x = 0; x < w; x++) {
+		for (unsigned y = 0; y < h; y++) {
+			unsigned i = y*w+x;
+			signed sw = (signed) w;
+			signed si = (signed) i;
+			signed imw = si - sw;
+			signed ipw = si + sw;
+			signed imo = si - 1;
+			signed ipo = si + 1;
+			if (!((world.properties[i] & Cell_Fixed)
+			   ||(world.properties[i] & Cell_Insulator))) {
+	
+				// Cell above
+				if(imw >= 0 && world.properties[i-w] & Cell_Insulator)
+					props[i] |= 0x02;
+			
+				// Cell below
+				if(ipw < w*h && world.properties[i+w] & Cell_Insulator)
+					props[i] |= 0x04;
+				
+				// Cell left
+				if(imo >= 0 && world.properties[i-1] & Cell_Insulator)
+					props[i] |= 0x08;
+				
+				// Cell right
+				if(ipo < w*h && world.properties[i+1] & Cell_Insulator)
+					props[i] |= 0x10;
+			} else
+				props[i] |= 0x01;
+		}
+	}
+
+
+	queue.enqueueWriteBuffer(buffProperties, CL_FALSE, 0, world.w*world.h, &props[0]);
 	queue.enqueueWriteBuffer(buffState, CL_FALSE, 0, cbBuffer, &world.state[0], NULL, &evCopiedState);
 	
 	cl::NDRange offset(0, 0);				// Always start iterations at x=0, y=0
 	cl::NDRange globalSize(w, h);	// Global size must match the original loops
 	cl::NDRange localSize=cl::NullRange;	// We don't care about local size
 
-	uint8_t *properties = NULL;
-	if (!(properties = malloc(w * h))) {
-		printf("ERR: malloc() failed! Ensure computer not from 1974.\n");
-		exit(ENOMEM);
-	}
-	
-	for (unsigned i = 0; i < w * h; i++) {
-	// bulid world properties packed char for each cell
-		if (world.properties[i] & Cell_Fixed)
-			properties[i] |= Curr_Cell_Fixed;
-		if (world.properties[i] & Cell_Insulator)
-			properties[i] |= Curr_Cell_Insulator;
-		if (world.properties[i-w] & Cell_Insulator)
-			properties[i] |= North_Cell_Insul;
-		if (world.properties[i+w] & Cell_Insulator)
-			properties[i] |= South_Cell_Insul;
-		if (world.properties[i-1] & Cell_Insulator)
-			properties[i] |= West_Cell_Insul;
-		if (world.properties[i+1] & Cell_Insulator)
-			properties[i] |= East_Cell_Insul;
-	}
 
 	for(unsigned t=0;t<n;t++) {
-		
 		kernel.setArg(2, buffState);
 		kernel.setArg(3, buffBuffer);
-		kernel.setArg(4, properties[i]);
 		queue.enqueueNDRangeKernel(kernel, offset, globalSize, localSize);
 		queue.enqueueBarrierWithWaitList();
 		std::swap(buffState, buffBuffer);
 		world.t += dt; // We have moved the world forwards in time
 	}
-		
-	queue.enqueueReadBuffer(buffBuffer, CL_TRUE, 0, cbBuffer, &world.state[0]);
-		
-	free(properties);
+
+	queue.enqueueReadBuffer(buffState, CL_TRUE, 0, cbBuffer, &world.state[0]);
 }
 
 	

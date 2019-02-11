@@ -122,9 +122,9 @@ void StepWorldV4DoubleBuffered(world_t &world, float dt, unsigned n)
 
 	kernel.setArg(0, inner);
 	kernel.setArg(1, outer);
-	kernel.setArg(2, buffProperties);
-	kernel.setArg(3, buffState);
-	kernel.setArg(4, buffBuffer);
+	kernel.setArg(2, buffState);
+	kernel.setArg(3, buffBuffer);
+	kernel.setArg(4, buffProperties);
 
 	queue.enqueueWriteBuffer(buffProperties, CL_TRUE, 0, cbBuffer, &world.properties[0]);
 	cl::Event evCopiedState;
@@ -135,16 +135,15 @@ void StepWorldV4DoubleBuffered(world_t &world, float dt, unsigned n)
 	cl::NDRange localSize=cl::NullRange;	// We don't care about local size
 	
 	for(unsigned t=0;t<n;t++) {
-		
-		kernel.setArg(3, buffState);
-		kernel.setArg(4, buffBuffer);
+		kernel.setArg(2, buffState);
+		kernel.setArg(3, buffBuffer);
 		queue.enqueueNDRangeKernel(kernel, offset, globalSize, localSize);
 		queue.enqueueBarrierWithWaitList();
 		std::swap(buffState, buffBuffer);
 		world.t += dt; // We have moved the world forwards in time
 	}
 		
-	queue.enqueueReadBuffer(buffBuffer, CL_TRUE, 0, cbBuffer, &world.state[0]);
+	queue.enqueueReadBuffer(buffState, CL_TRUE, 0, cbBuffer, &world.state[0]);
 		
 	
 }

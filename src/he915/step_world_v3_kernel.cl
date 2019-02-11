@@ -3,7 +3,7 @@ enum cell_flags_t{
 	Cell_Insulator	=0x2
 };
 
-__kernel void kernel_xy(float outer, float inner, __global const float *world_state, __global float *buffer, const cell_flags_t *world_properties)
+__kernel void kernel_xy(float inner, float outer, __global const float *world_state, __global float *buffer, __constant enum cell_flags_t *world_properties)
 {
 
 	uint x=get_global_id(0);
