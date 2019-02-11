@@ -1,13 +1,13 @@
-enum cell_flags_t{
-	Curr_Cell_Fixed		= 0x1,
-	Curr_Cell_Insulator	= 0x2,
-	North_Cell_Insul	= 0x4,
-	South_Cell_Insul	= 0x8,
+enum flags_t {
+	Curr_Cell_Fixed		= 0x01,
+	Curr_Cell_Insulator	= 0x02,
+	North_Cell_Insul	= 0x04,
+	South_Cell_Insul	= 0x08,
 	East_Cell_Insul		= 0x10,
 	West_Cell_Insul		= 0x20
 };
 
-__kernel void kernel_xy(float outer, float inner, __global const float *world_state, __global float *buffer, __private cell_flags_t properties)
+__kernel void kernel_xy(float inner, float outer, __global const float *world_state, __global float *buffer, __private uchar properties)
 {
 
 	uint x=get_global_id(0);
